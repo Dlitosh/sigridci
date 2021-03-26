@@ -42,9 +42,9 @@ class SigridApiClient:
         self.account = os.environ["SIGRID_CI_ACCOUNT"]
         self.token = os.environ["SIGRID_CI_TOKEN"]
         
-        self.urlPartnerName = urllib.parse.quote_plus(args.partner)
-        self.urlCustomerName = urllib.parse.quote_plus(args.customer)
-        self.urlSystemName = urllib.parse.quote_plus(args.system)
+        self.urlPartnerName = urllib.parse.quote_plus(args.partner.lower())
+        self.urlCustomerName = urllib.parse.quote_plus(args.customer.lower())
+        self.urlSystemName = urllib.parse.quote_plus(args.system.lower())
         
     def callSigridAPI(self, api, path):
         url = f"{self.baseURL}/rest/{api}{path}"
@@ -169,6 +169,10 @@ class Report:
             return "N/A"
         return "%.1f" % ratings[metric]
         
+    def formatBaselineDate(self, feedback):
+        snapshotDate = datetime.datetime.strptime(feedback["baseline"], "%Y%m%d")
+        return snapshotDate.strftime("%Y-%m-%d")
+        
     def isPassed(self, feedback, metric, targetRating):
         value = feedback["newCodeRatings"].get(metric, None)
         return value == None or value >= targetRating
@@ -184,7 +188,7 @@ class TextReport(Report):
     ANSI_YELLOW = "\033[33m"
     ANSI_RED = "\033[91m"
     ANSI_BLUE = "\033[96m"
-    LINE_WIDTH = 77
+    LINE_WIDTH = 81
 
     def generate(self, feedback, args):
         print("-" * self.LINE_WIDTH)
@@ -201,12 +205,12 @@ class TextReport(Report):
         print("-" * self.LINE_WIDTH)
         print("Maintainability ratings")
         print("-" * self.LINE_WIDTH)
-        print("System property".ljust(40) + "Overall quality".ljust(20) + "New code quality")
+        print("System property".ljust(40) + f"Baseline ({self.formatBaselineDate(feedback)})    New code quality")
         for metric in self.METRICS:
             if metric == "MAINTAINABILITY":
                 print("-" * self.LINE_WIDTH)
             self.printRatingColor(metric.title().replace("_", " ").ljust(40) + \
-                "(" + self.formatRating(feedback["overallRatings"], metric) + ")".ljust(16) + \
+                "(" + self.formatRating(feedback["overallRatings"], metric) + ")".ljust(21) + \
                 self.formatRating(feedback["newCodeRatings"], metric), feedback["newCodeRatings"].get(metric))
     
     def printRatingColor(self, message, rating):
@@ -232,12 +236,12 @@ class StaticHtmlReport(Report):
         if not os.path.exists("sigrid-ci-output"):
             os.mkdir("sigrid-ci-output")
     
-        with open(os.path.dirname(__file__) + "/sigridci-feedback-template.html", "r") as templateRef:
+        with open(os.path.dirname(__file__) + "/sigridci-feedback-template.html", encoding="utf-8", mode="r") as templateRef:
             template = templateRef.read()
             template = self.renderHtmlFeedback(template, feedback, args)
 
         reportFile = os.path.abspath("sigrid-ci-output/index.html")
-        writer = open(reportFile, "w")
+        writer = open(reportFile, encoding="utf-8", mode="w")
         writer.write(template)
         writer.close()
         
@@ -254,6 +258,7 @@ class StaticHtmlReport(Report):
         template = template.replace("@@@SYSTEM", args.system)
         template = template.replace("@@@TARGET", "%.1f" % args.targetquality)
         template = template.replace("@@@LINES_OF_CODE_TOUCHED", "%d" % feedback.get("newCodeLinesOfCode", 0))
+        template = template.replace("@@@BASELINE_DATE", self.formatBaselineDate(feedback))
         template = template.replace("@@@SIGRID_LINK", self.getSigridUrl(args))
         for metric in self.METRICS:
             template = template.replace("@@@" + metric + "_OVERALL", self.formatRating(feedback["overallRatings"], metric))

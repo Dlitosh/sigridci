@@ -3,12 +3,6 @@ Integrating Sigrid CI with GitHub Actions
 
 This guide explains how to integrate Sigrid into your GitHub continuous integration pipeline, using GitHub Actions. Make sure you have also read the [general Sigrid CI documentation](README.md) before starting this guide.
 
----
-
-**Sigrid CI is currently in beta. Please [contact us](mailto:support@softwareimprovementgroup.com) if you have suggestions on how to make it more useful to you and your team.**
-
----
-
 ## Prerequisites
 
 - You have a Sigrid user account. Sigrid CI requires Sigrid, it is currently not supported to *only* use the CI integration without using Sigrid itself.
@@ -41,6 +35,12 @@ Sigrid CI reads your Sigrid account credentials from two environment variables, 
 
 <img src="images/github-env-secrets.png" width="400" />
 
+This example explained how to add secrets for a single repository. However, if you have a GitHub organization with many repositories it can be cumbersome to repeat these steps for every repository. You can solve this by adding secrets to your GitHub organization. The process is the same as explained above, though you should access the "secrets" menu for your GitHub organization instead of the "secrets" page for the repository.
+
+<img src="images/github-org-secrets.jpg" width="400" />
+
+In this screenshot, the repository-level secrets and the organization-level secrets have been given different names, to make it easier to tell which is which.
+
 **Step 2: Create a GitHub Actions workflow for Sigrid CI**
 
 Sigrid CI consists of a number of Python-based client scripts, that interact with Sigrid in order to analyze your project's source code and provide feedback based on the results. These client scripts need to be available to the CI environment, in order to call the scripts *from* the CI pipeline. You can configure your GitHub Actions to both download the Sigrid CI client scripts and then run Sigrid CI. 
@@ -49,20 +49,34 @@ In your GitHub repository, create a file `.github/workflows/sigridci.yml` and gi
 
 ```
 name: sigridci
-on: [push]
+on: [push, pull_request]
 jobs:
   sigridci:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
       - run: "git clone https://github.com/Software-Improvement-Group/sigridci.git sigridci"
       - name: "Run Sigrid CI" 
         env:
           SIGRID_CI_ACCOUNT: "${{ secrets.SIGRID_CI_ACCOUNT }}"
           SIGRID_CI_TOKEN: "${{ secrets.SIGRID_CI_TOKEN }}"
-        run: "./sigridci/sigridci/sigridci.py --customer opensource --system junit --source . --targetquality 3.5"
+        run: "./sigridci/sigridci/sigridci.py --customer examplecustomername --system examplesystemname --source . --targetquality 3.5"
+      - name: "Save Sigrid CI results"
+        uses: actions/upload-artifact@v2
+        with:
+          path: "sigrid-ci-output/**"
+          retention-days: 7
 ```
 
-**Security note:** This example downlaods the Sigrid CI client scripts directly from GitHub. That might be acceptable for some projects, and is in fact increasingly common. However, some projects might not allow this as part of their security policy. In those cases, you can simply download the `sigridci` directory in this repository, and make it available to your runners (either by placing the scripts in a known location, or packaging them into a Docker container). 
+This example assumes you're using the repository-level secrets. If you want to use the organization-level secrets instead, you can change the following lines:
+
+```
+SIGRID_CI_ACCOUNT: "${{ secrets.SIGRID_CI_ORG_ACCOUNT }}"
+SIGRID_CI_TOKEN: "${{ secrets.SIGRID_CI_ORG_TOKEN }}"
+```
+
+**Security note:** This example downloads the Sigrid CI client scripts directly from GitHub. That might be acceptable for some projects, and is in fact increasingly common. However, some projects might not allow this as part of their security policy. In those cases, you can simply download the `sigridci` directory in this repository, and make it available to your runners (either by placing the scripts in a known location, or packaging them into a Docker container). 
 
 Refer to the [GitHub Actions documentation](https://docs.github.com/en/actions/learn-github-actions/introduction-to-github-actions) for more information on when and how these actions should be performed.
 
@@ -70,11 +84,11 @@ The relevant command that starts Sigrid CI is the call to the `sigridci.py` scri
 
 | Argument        | Required | Example value | Description                                                                                         |
 |-----------------|----------|---------------|-----------------------------------------------------------------------------------------------------|
-| --customer      | Yes      | mycompany     | Name of your organization's Sigrid account. Contact SIG support if you're not sure on this.         |
-| --system        | Yes      | junit         | Name of your system in Sigrid. Contact SIG support if you're not sure on this.                      |
+| --customer      | Yes      | examplecustomername     | Name of your organization's Sigrid account. Contact SIG support if you're not sure on this. Value should be lowercase.         |
+| --system        | Yes      | examplesystemname         | Name of your system in Sigrid. Contact SIG support if you're not sure on this. Value should be lowercase.                      |
 | --source        | Yes      | .             | Path of your project's source code. Use "." for current directory.                                  |
 | --targetquality | No       | 3.5           | Target quality level, not meeting this target will cause the CI step to fail. Default is 3.5 stars. |
-| --exclude       | No       | /build/,.png  | Comma-separated list of file and/or directory names that should be excluded from the upload.        |
+| --exclude       | No       | /build/,.png  | Comma-separated list of file and/or directory names that should be excluded from the upload. This is on top of the existing scope file in Sigrid        |
 
 Finally, note that you need to perform this step for every project where you wish to use Sigrid CI. Be aware that you can set a project-specific target quality, you don't necessarily have to use the same target for every project.
 
@@ -96,7 +110,7 @@ Select "Details" to see the output from the Sigrid CI check:
 
 Sigrid CI provides multiple levels of feedback. The first and fastest type of feedback is directly produced in the CI output, as shown in the following screenshot:
 
-<img src="images/feedback-ci-environment.png" width="600" />
+<img src="images/github-action-feedback.png" width="600" />
 
 The output consists of the following:
 
@@ -104,11 +118,34 @@ The output consists of the following:
 - An overview of all ratings, compared against the system as a whole. This allows you to check if your changes improved the system, or accidentally made things worse.
 - The final conclusion on whether your changes and merge request meet the quality target.
 
-In addition to the textual output, Sigrid CI also generates a static HTML file that shows the results in a more graphical form. This is similar to test coverage tools, which also tend to produce a HTML report. The information in the HTML report is based on the aforementioned list, though it includes slightly more detail.
+In addition to the textual output, Sigrid CI also generates a static HTML file that shows the results in a more graphical form. This is similar to test coverage tools, which also tend to produce a HTML report. You can download this HTML report from the "artifacts" section in the GitHub Actions page:
+
+<img src="images/github-artifacts.png" width="300" />
+
+The information in the HTML report is based on the aforementioned list, though it includes slightly more detail.
 
 <img src="images/feedback-report.png" width="600" />
 
-Finally, if you want to have more information on the system as a whole, you can also access [Sigrid](http://sigrid-says.com/), which gives you ore information on the overall quality of the system, its architecture, and more.
+Finally, if you want to have more information on the system as a whole, you can also access [Sigrid](http://sigrid-says.com/), which gives you more information on the overall quality of the system, its architecture, and more.
+
+### Adding a Sigrid CI badge to your repository
+
+Once you have used Sigrid CI for the first time, GitHub allows you to create a badge showing the current status. You can create the badge using the following steps:
+
+- Click on "Actions" in your repository
+- Select Sigrid CI in the menu on the left
+- Use the "..." menu on the top right
+- Select "Create status badge"
+
+<img src="images/github-create-badge.jpg" width="300" />
+
+- Copy the Markdown code, and add it to your repository's README file
+
+<img src="images/github-badge-markdown.png" width="400" />
+
+Your Sigrid CI badge will now appear in your project's home page.
+
+<img src="images/github-badge.png" width="300" />
 
 ## Contact and support
 
